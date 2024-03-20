@@ -21,6 +21,10 @@ pub enum SynthesisError {
     MalformedVerifyingKey,
     /// During CRS generation, we observed an unconstrained auxiliary variable
     UnconstrainedVariable,
+    /// During Constraint Enforcing, The number of linear combinations did not match the predicate arity
+    ArityMismatch,
+    /// Returns not implemented errors
+    NotImplemented,
 }
 
 impl ark_std::error::Error for SynthesisError {}
@@ -41,6 +45,15 @@ impl fmt::Display for SynthesisError {
             SynthesisError::MalformedVerifyingKey => write!(f, "malformed verifying key"),
             SynthesisError::UnconstrainedVariable => {
                 write!(f, "auxiliary variable was unconstrained")
+            },
+            SynthesisError::UnconstrainedVariable => {
+                write!(f, "Number of linear combinations should match the predicate arity")
+            },
+            SynthesisError::ArityMismatch => {
+                write!(f, "The Arity of the constraints provided does not match the arity supported by the local predicate")
+            },
+            SynthesisError::NotImplemented => {
+                write!(f, "This function has not been implemented yet")
             },
         }
     }

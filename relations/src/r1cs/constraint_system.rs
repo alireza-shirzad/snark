@@ -1,5 +1,4 @@
-#[cfg(feature = "std")]
-use crate::r1cs::ConstraintTrace;
+
 use crate::r1cs::{LcIndex, LinearCombination, Matrix, SynthesisError, Variable};
 use ark_ff::Field;
 use ark_std::{
@@ -13,6 +12,9 @@ use ark_std::{
     vec,
     vec::Vec,
 };
+
+#[cfg(feature="std")]
+use crate::r1cs::trace::ConstraintTrace;
 
 /// Computations are expressed in terms of rank-1 constraint systems (R1CS).
 /// The `generate_constraints` method is called to generate constraints for
@@ -334,7 +336,7 @@ impl<F: Field> ConstraintSystem<F> {
                     // inlined LC, and substitute it in.
                     //
                     // We have the guarantee that `lc_index` must exist in
-                    // `new_lc_map` since a LC can only depend on other
+                    // `transformed_lc` since a LC can only depend on other
                     // LCs with lower indices, which we have transformed.
                     //
                     let lc = transformed_lc_map
@@ -1023,6 +1025,7 @@ impl<F: Field> ConstraintSystemRef<F> {
 #[cfg(test)]
 mod tests {
     use crate::r1cs::*;
+    use crate::lc;
     use ark_ff::One;
     use ark_test_curves::bls12_381::Fr;
 
