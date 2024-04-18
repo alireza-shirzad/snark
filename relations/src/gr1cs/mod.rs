@@ -3,20 +3,41 @@
 #[macro_use]
 pub mod constraint_system;
 pub mod predicate;
-use crate::utils::error;
-
+pub mod sample;
 #[cfg(feature = "std")]
 mod trace;
 
 #[cfg(feature = "std")]
 pub use crate::gr1cs::trace::{ConstraintLayer, ConstraintTrace, TraceStep, TracingMode};
 
-use ark_std::vec::Vec;
-pub use ark_ff::{Field};
+
+pub use tracing::info_span;
+pub use constraint_system::{
+    Index, ConstraintSynthesizer, ConstraintSystem, ConstraintSystemRef, Namespace,
+    OptimizationGoal, SynthesisMode,
+};
+pub use crate::utils::error;
+pub use crate::utils::error::SynthesisError;
+
+pub use crate::utils::variable::*;
+pub use crate::utils::*;
+
+pub use crate::utils::impl_lc::*;
 
 
-use core::cmp::Ordering;
+pub use predicate::MUL;
 
 
-
-
+/// Generate a `Namespace` with name `name` from `ConstraintSystem` `cs`.
+/// `name` must be a `&'static str`.
+#[macro_export]
+macro_rules! gns {
+    ($cs:expr, $name:expr) => {{
+        let span = $crate::gr1cs::info_span!(target: "gr1cs", $name);
+        let id = span.id();
+        let _enter_guard = span.enter();
+        core::mem::forget(_enter_guard);
+        core::mem::forget(span);
+        $crate::gr1cs::Namespace::new($cs.clone(), id)
+    }};
+}

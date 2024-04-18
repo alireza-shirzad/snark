@@ -5,8 +5,31 @@ use core::cmp::Ordering;
 
 
 /// A sparse representation of constraint matrices.
+/// Column numbers start from zero
 pub type Matrix<F> = Vec<Vec<(F, usize)>>;
+
+pub fn transpose<F: Field>(matrix: &Matrix<F>) -> Matrix<F> {
+    // First, find the maximum column index to know the size of the transposed matrix
+    let max_cols = matrix.iter().flat_map(|row| row.iter().map(|&(_, col)| col + 1)).max().unwrap_or(0);
+
+    // Initialize the transposed matrix with empty vectors
+    let mut transposed: Matrix<F> = vec![Vec::new(); max_cols];
+
+    // Iterate through each row and each element in the row
+    for (row_index, row) in matrix.iter().enumerate() {
+        for &(value, col_index) in row {
+            // Add the element to the new row (which is originally a column) in the transposed matrix
+            transposed[col_index].push((value, row_index));
+        }
+    }
+
+    // Return the transposed matrix
+    transposed
+}
+
 use crate::utils::impl_lc::LcIndex;
+
+use super::impl_lc::LinearCombination;
 
 
 /// Represents the different kinds of variables present in a constraint system.
@@ -22,6 +45,7 @@ pub enum Variable {
     Witness(usize),
     /// Represents of a linear combination.
     SymbolicLc(LcIndex),
+    
 }
 
 impl Variable {

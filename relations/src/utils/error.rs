@@ -25,6 +25,8 @@ pub enum SynthesisError {
     ArityMismatch,
     /// Returns not implemented errors
     NotImplemented,
+    /// Returns not implemented errors
+    InstanceWitnessSizeMismatch,
 }
 
 impl ark_std::error::Error for SynthesisError {}
@@ -54,6 +56,9 @@ impl fmt::Display for SynthesisError {
             },
             SynthesisError::NotImplemented => {
                 write!(f, "This function has not been implemented yet")
+            },
+            SynthesisError::InstanceWitnessSizeMismatch => {
+                write!(f, "The instance and witness and totall size of the index don't match")
             },
         }
     }

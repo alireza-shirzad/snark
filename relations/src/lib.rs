@@ -18,7 +18,6 @@ extern crate ark_std;
 pub mod r1cs;
 
 
-// #[cfg(feature = "incomplete")]
 pub mod gr1cs;
 
 pub mod utils;

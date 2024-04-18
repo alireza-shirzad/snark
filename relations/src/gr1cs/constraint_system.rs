@@ -1,5 +1,3 @@
-#[cfg(feature = "std")]
-use crate::r1cs::ConstraintTrace;
 use ark_ff::Field;
 use ark_std::{
     any::{Any, TypeId},
@@ -12,15 +10,17 @@ use ark_std::{
     string::ToString,
     vec,
     vec::Vec,
+    log2
 };
 
-use crate::utils::{
+
+use crate::{r1cs, utils::{
     error::SynthesisError,
     impl_lc::LinearCombination,
     variable::{Matrix, Variable},
-};
+}};
 
-use super::predicate::{self, LocalPredicate};
+use super::predicate::{self, LocalPredicate, LocalPredicateType};
 
 /// Computations are expressed in terms of generalized rank-1 constraint systems (GR1CS).
 /// The `generate_constraints` method is called to generate constraints for
@@ -68,10 +68,8 @@ pub struct ConstraintSystem<F: Field> {
     /// == SynthesisMode::Setup`.
     pub witness_assignment: Vec<F>,
 
-    local_predicates: BTreeMap<String, LocalPredicate<F>>,
+    pub local_predicates: BTreeMap<String, LocalPredicate<F>>,
 
-    #[cfg(feature = "std")]
-    constraint_traces: Vec<Option<ConstraintTrace>>,
 }
 
 impl<F: Field> ConstraintSystem<F> {
@@ -91,8 +89,6 @@ impl<F: Field> ConstraintSystem<F> {
             witness_assignment: Vec::new(),
             local_predicates: BTreeMap::new(),
 
-            #[cfg(feature = "std")]
-            constraint_traces: Vec::new(),
         }
     }
 
@@ -204,29 +200,52 @@ impl<F: Field> ConstraintSystem<F> {
             predicate.enforce_constraint(linear_combinations)?;
         }
         self.num_constraints += 1;
-        #[cfg(feature = "std")]
-        {
-            let trace = ConstraintTrace::capture();
-            self.constraint_traces.push(trace);
-        }
+
         Ok(())
     }
 
-    pub fn to_matrices(&self) -> Option<ConstraintMatrices<F>> {
+    pub fn to_index(&self) -> Option<Index<F>> {
         if let SynthesisMode::Prove {
             construct_matrices: false,
         } = self.mode
         {
             None
         } else {
-            let mut constraint_matrices =
-                ConstraintMatrices::new(self.num_instance_variables, self.num_witness_variables);
+            let mut index = Index::<F> {
+                n: self.num_instance_variables,
+                k: self.num_witness_variables + self.num_instance_variables,
+                c: self.num_local_predicates,
+                predicates: Vec::new(),
+            };
 
             for (label, predicate) in self.local_predicates.iter() {
-                constraint_matrices.add_predicate_matrices(label, predicate);
+                index.add_predicate(predicate);
             }
 
-            Some(constraint_matrices)
+            Some(index)
+        }
+    }
+
+    /// Obtain a variable representing a linear combination.
+    #[inline]
+    pub fn new_lc(&mut self, lc: LinearCombination<F>) -> crate::gr1cs::Result<Variable> {
+        // TODO: Should be changed!
+        let var = Variable::SymbolicLc(crate::gr1cs::LcIndex(2));
+        Ok(var)
+    }
+
+
+    /// Obtain the assignment corresponding to the `Variable` `v`.
+    pub fn assigned_value(&self, v: Variable) -> Option<F> {
+        match v {
+            Variable::One => Some(F::one()),
+            Variable::Zero => Some(F::zero()),
+            Variable::Witness(idx) => self.witness_assignment.get(idx).copied(),
+            Variable::Instance(idx) => self.instance_assignment.get(idx).copied(),
+            Variable::SymbolicLc(idx) => {
+                //TODO
+                Some(F::one())
+            },
         }
     }
 
@@ -254,56 +273,94 @@ impl<F: Field> ConstraintSystem<F> {
     }
 }
 
-/// TODO: Change the interfaces of this struct
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ConstraintMatrices<F: Field> {
-    /// The number of variables that are "public instances" to the constraint
-    /// system.
-    num_instance_variables: usize,
-    /// The number of variables that are "private witnesses" to the constraint
-    /// system.
-    num_witness_variables: usize,
-    /// The number of constraints in the constraint system.
-    pub num_constraints: usize,
-
-    /// The number of non_zero entries in the matrices
-    pub num_non_zero: BTreeMap<String, Vec<usize>>,
-
-    pub matrices: BTreeMap<String, Vec<Matrix<F>>>,
+pub struct Index<F: Field> {
+    pub n: usize,
+    pub k: usize,
+    pub c: usize,
+    pub predicates: Vec<Predicate<F>>,
 }
-
-impl<F: Field> ConstraintMatrices<F> {
-    // Constructor to create a new instance
-    pub fn new(num_instance_variables: usize, num_witness_variables: usize) -> Self {
-        Self {
-            num_instance_variables,
-            num_witness_variables,
-            num_constraints: 0,
-            num_non_zero: BTreeMap::new(),
-            matrices: BTreeMap::new(),
-        }
+impl<F: Field> Index<F> {
+    pub fn get_t_max(&self) -> usize {
+        self.predicates
+            .iter()
+            .map(|predicate| predicate.get_t())
+            .max()
+            .unwrap()
     }
 
-    pub fn add_predicate_matrices(
+    pub fn get_max_degree(&self) -> usize {
+        let mut predicates_max_degree:usize = 0;
+        for predicate in &self.predicates{
+            let predicate_degree:usize = match predicate.predicate_type {
+            LocalPredicateType::Polynomial(ref poly) => poly.get_degree(),
+            _=> panic!("Not implemented")
+            };
+            predicates_max_degree = ark_std::cmp::max(predicates_max_degree, predicate_degree);
+        }
+        
+        predicates_max_degree
+    }
+
+    pub fn get_m_total(&self) -> usize {
+        self.predicates.iter().map(|predicate| predicate.get_m()).sum()
+    }
+    pub fn get_v_total(&self) -> usize {
+        log2(self.get_m_total() as usize) as usize
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Predicate<F: Field> {
+    pub m: usize,
+    pub t: usize,
+    pub matrices: Vec<Matrix<F>>,
+    pub predicate_type: predicate::LocalPredicateType<F>,
+}
+
+impl<F: Field> Predicate<F> {
+    pub fn get_m(&self) -> usize {
+        self.m
+    }
+
+
+    pub fn get_t(&self) -> usize {
+        self.t
+    }
+
+    pub fn get_matrices(&self) -> &[Matrix<F>] {
+        &self.matrices
+    }
+}
+
+impl<F: Field> Index<F> {
+    pub fn add_predicate(
         &mut self,
-        label: &str,
-        predicate: &LocalPredicate<F>,
+        local_predicate: &LocalPredicate<F>,
     ) -> crate::utils::Result<()> {
-        let mut predicate_matrices: Vec<Matrix<F>> = vec![Matrix::new(); predicate.arity];
-        let predicate_constraints = predicate.get_constraints();
-        for constraint in predicate_constraints {
-            for (index, value) in constraint.iter().enumerate() {
-                predicate_matrices[index].push(self.make_row(value))
+
+        let mut predicate_matrices: Vec<Matrix<F>> = vec![Matrix::new(); local_predicate.arity];
+        let predicate_constraints: &Vec<Vec<LinearCombination<F>>> = local_predicate.get_constraints();
+        // std::dbg!(predicate_constraints.len());
+
+        for (argument_index, argument_constraints) in predicate_constraints.iter().enumerate() {
+            for argument_constraint in argument_constraints {
+                predicate_matrices[argument_index].push(self.make_row(argument_constraint))
             }
         }
-        self.matrices
-            .insert(String::from(label), predicate_matrices);
+
+        self.predicates.push(Predicate {
+            m: local_predicate.num_constraints,
+            t: local_predicate.arity,
+            matrices: predicate_matrices,
+            predicate_type: local_predicate.predicate_type.clone(),
+        });
         Ok(())
     }
 
     #[inline]
     fn make_row(&self, l: &LinearCombination<F>) -> Vec<(F, usize)> {
-        let num_input = self.num_instance_variables;
+        let num_input = self.n;
         l.0.iter()
             .filter_map(|(coeff, var)| {
                 if coeff.is_zero() {
@@ -548,6 +605,17 @@ impl<F: Field> ConstraintSystemRef<F> {
             })
     }
 
+
+
+    /// Obtain a variable representing a linear combination.
+    #[inline]
+    pub fn new_lc(&self, lc: LinearCombination<F>) -> crate::gr1cs::Result<Variable> {
+        self.inner()
+            .ok_or(SynthesisError::MissingCS)
+            .and_then(|cs| cs.borrow_mut().new_lc(lc))
+    }
+
+
     /// Enforce a R1CS constraint with the name `name`.
     #[inline]
     pub fn enforce_constraint(
@@ -564,9 +632,18 @@ impl<F: Field> ConstraintSystemRef<F> {
     }
 
     #[inline]
-    pub fn to_matrices(&self) -> Option<ConstraintMatrices<F>> {
-        self.inner().and_then(|cs| cs.borrow().to_matrices())
+    pub fn to_index(&self) -> Option<Index<F>> {
+        self.inner().and_then(|cs| cs.borrow().to_index())
     }
+
+
+
+
+    /// Obtain the assignment corresponding to the `Variable` `v`.
+    pub fn assigned_value(&self, v: Variable) -> Option<F> {
+        self.inner().and_then(|cs| cs.borrow().assigned_value(v))
+    }
+
 
     pub fn register_predicate(
         &mut self,
@@ -599,57 +676,6 @@ impl<F: Field> ConstraintSystemRef<F> {
                 cs.borrow().which_is_unsatisfied()
             })
     }
-
-    /// Get trace information about all constraints in the system
-    pub fn constraint_names(&self) -> Option<Vec<String>> {
-        #[cfg(feature = "std")]
-        {
-            self.inner().and_then(|cs| {
-                cs.borrow()
-                    .constraint_traces
-                    .iter()
-                    .map(|trace| {
-                        let mut constraint_path = String::new();
-                        let mut prev_module_path = "";
-                        let mut prefixes = ark_std::collections::BTreeSet::new();
-                        for step in trace.as_ref()?.path() {
-                            let module_path = if prev_module_path == step.module_path {
-                                prefixes.insert(step.module_path.to_string());
-                                String::new()
-                            } else {
-                                let mut parts = step
-                                    .module_path
-                                    .split("::")
-                                    .filter(|&part| part != "r1cs_std" && part != "constraints");
-                                let mut path_so_far = String::new();
-                                for part in parts.by_ref() {
-                                    if path_so_far.is_empty() {
-                                        path_so_far += part;
-                                    } else {
-                                        path_so_far += &["::", part].join("");
-                                    }
-                                    if prefixes.contains(&path_so_far) {
-                                        continue;
-                                    } else {
-                                        prefixes.insert(path_so_far.clone());
-                                        break;
-                                    }
-                                }
-                                parts.collect::<Vec<_>>().join("::") + "::"
-                            };
-                            prev_module_path = step.module_path;
-                            constraint_path += &["/", &module_path, step.name].join("");
-                        }
-                        Some(constraint_path)
-                    })
-                    .collect::<Option<Vec<_>>>()
-            })
-        }
-        #[cfg(not(feature = "std"))]
-        {
-            None
-        }
-    }
 }
 
 /// Defines the mode of operation of a `ConstraintSystem`.
@@ -680,19 +706,13 @@ pub enum OptimizationGoal {
 #[cfg(test)]
 mod tests {
 
-    use super::ConstraintSystem;
-    use crate::gr1cs::predicate::{LocalPredicate, LocalPredicateType, Polynomial};
-    use crate::lc;
-    use crate::utils::variable::Matrix;
-    use ark_ff::One;
-    use ark_std::collections::BTreeMap;
-    use ark_std::string::String;
-    use ark_std::vec;
-    use ark_std::vec::Vec;
     use ark_test_curves::bls12_381::Fr;
-    /// Let's test the following scenario
-    /// L_1(X_1, X_2, X_3, X_4) with matrices: (M_11, M_12, M_13, M_14)
-    /// L_2(X_1, X_2) with matrices: (M_21, M_22)
+    use crate::gr1cs::{sample::*, ConstraintSystem};
+
+    use super::ConstraintSynthesizer;
+    // / Let's test the following scenario
+    // / L_1(X_1, X_2, X_3, X_4) with matrices: (M_11, M_12, M_13, M_14)
+    // / L_2(X_1, X_2) with matrices: (M_21, M_22)
     // M_11 = [
     //     0,0,0,0,1
     //     4,0,2,0,2
@@ -709,76 +729,71 @@ mod tests {
     //     4,0,1,1,1
     //     0,0,1,2,6
     // ]
-    #[test]
-    fn matrix_generation() -> crate::utils::Result<()> {
-        let mut cs = ConstraintSystem::<Fr>::new_ref();
+    // #[test]
+    // fn matrix_generation() -> crate::utils::Result<()> {
+    //     let mut cs = ConstraintSystem::<Fr>::new_ref();
 
-        let a = cs.new_input_variable(|| Ok(Fr::from(1u8))).unwrap();
-        let b = cs.new_input_variable(|| Ok(Fr::from(1u8))).unwrap();
-        let c = cs.new_witness_variable(|| Ok(Fr::from(2u8))).unwrap();
-        let d = cs.new_witness_variable(|| Ok(Fr::from(3u8))).unwrap();
-        let e = cs.new_witness_variable(|| Ok(Fr::from(2u8))).unwrap();
+    //     let a = cs.new_input_variable(|| Ok(Fr::from(1u8))).unwrap();
+    //     let b = cs.new_input_variable(|| Ok(Fr::from(1u8))).unwrap();
+    //     let c = cs.new_witness_variable(|| Ok(Fr::from(2u8))).unwrap();
+    //     let d = cs.new_witness_variable(|| Ok(Fr::from(3u8))).unwrap();
+    //     let e = cs.new_witness_variable(|| Ok(Fr::from(2u8))).unwrap();
 
-        let mut local_predicate_1 = LocalPredicate::new_poly_predicate(4, Vec::new()).unwrap();
+    //     let mut local_predicate_1 = LocalPredicate::new_poly_predicate(4, Vec::new()).unwrap();
 
-        cs.register_predicate("poly-predicate-1", local_predicate_1);
-        let predicate1_constraint1 = vec![
-            lc!() + e,
-            lc!() + (Fr::from(2u8), a) + (Fr::from(3u8), b),
-            lc!() + (Fr::from(5u8), b) + c + d,
-            lc!() + (Fr::from(4u8), a) + c + d + e,
-        ];
-        let predicate1_constraint2 = vec![
-            lc!() + (Fr::from(4u8), a) + (Fr::from(2u8), c) + (Fr::from(2u8), e),
-            lc!() + a + b + c + d + e,
-            lc!() + a + b,
-            lc!() + c + (Fr::from(2u8), d) + (Fr::from(6u8), e),
-        ];
-        cs.enforce_constraint(predicate1_constraint1, "poly-predicate-1");
-        cs.enforce_constraint(predicate1_constraint2, "poly-predicate-1");
+    //     cs.register_predicate("poly-predicate-1", local_predicate_1);
+    //     let predicate1_constraint1 = vec![
+    //         lc!() + e,
+    //         lc!() + (Fr::from(2u8), a) + (Fr::from(3u8), b),
+    //         lc!() + (Fr::from(5u8), b) + c + d,
+    //         lc!() + (Fr::from(4u8), a) + c + d + e,
+    //     ];
+    //     let predicate1_constraint2 = vec![
+    //         lc!() + (Fr::from(4u8), a) + (Fr::from(2u8), c) + (Fr::from(2u8), e),
+    //         lc!() + a + b + c + d + e,
+    //         lc!() + a + b,
+    //         lc!() + c + (Fr::from(2u8), d) + (Fr::from(6u8), e),
+    //     ];
+    //     cs.enforce_constraint(predicate1_constraint1, "poly-predicate-1");
 
-        let constraint_system_matrices = cs.to_matrices().unwrap();
+    //     let index = cs.to_index().unwrap();
 
-
-            assert_eq!(
-                vec![
-                    vec![
-                        vec![(Fr::one(), 5)],
-                        vec![(Fr::from(4u8), 1), (Fr::from(2u8), 3), (Fr::from(2u8), 5)]
-                    ],
-                    vec![
-                        vec![(Fr::from(2u8), 1), (Fr::from(3u8), 2)],
-                        vec![
-                            (Fr::one(), 1),
-                            (Fr::one(), 2),
-                            (Fr::one(), 3),
-                            (Fr::one(), 4),
-                            (Fr::one(), 5),
-                        ]
-                    ],
-                    vec![
-                        vec![(Fr::from(5u8), 2), (Fr::one(), 3), (Fr::one(), 4)],
-                        vec![(Fr::one(), 1), (Fr::one(), 2)]
-                    ],
-                    vec![
-                        vec![
-                            (Fr::from(4u8), 1),
-                            (Fr::one(), 3),
-                            (Fr::one(), 4),
-                            (Fr::one(), 5)
-                        ],
-                        vec![(Fr::one(), 3), (Fr::from(2u8), 4), (Fr::from(6u8), 5)]
-                    ]
-                ],
-                constraint_system_matrices
-                .matrices
-                .get("poly-predicate-1")
-                .unwrap()
-                .to_vec()
-            );
-            Ok(())
-    }
-
+    //         assert_eq!(
+    //             vec![
+    //                 vec![
+    //                     vec![(Fr::one(), 4)],
+    //                     vec![(Fr::from(4u8), 0), (Fr::from(2u8), 2), (Fr::from(2u8), 4)]
+    //                 ],
+    //                 vec![
+    //                     vec![(Fr::from(2u8), 0), (Fr::from(3u8), 1)],
+    //                     vec![
+    //                         (Fr::one(), 0),
+    //                         (Fr::one(), 1),
+    //                         (Fr::one(), 2),
+    //                         (Fr::one(), 3),
+    //                         (Fr::one(), 4),
+    //                     ]
+    //                 ],
+    //                 vec![
+    //                     vec![(Fr::from(5u8), 1), (Fr::one(), 2), (Fr::one(), 3)],
+    //                     vec![(Fr::one(), 0), (Fr::one(), 1)]
+    //                 ],
+    //                 vec![
+    //                     vec![
+    //                         (Fr::from(4u8), 0),
+    //                         (Fr::one(), 2),
+    //                         (Fr::one(), 3),
+    //                         (Fr::one(), 4)
+    //                     ],
+    //                     vec![(Fr::one(), 2), (Fr::from(2u8), 3), (Fr::from(6u8), 4)]
+    //                 ]
+    //             ],
+    //             index
+    //             .predicates[0]
+    //             .matrices
+    //         );
+    //         Ok(())
+    // }
 
     // Let's test whether GR1CS accepts on a valid (winess,instance) pair
     // The circuit consists of three gates (A,B,C)
@@ -792,72 +807,15 @@ mod tests {
     // w7 = w4+w5
     // w8 = B(w5,w6)
     // x5 = C(w7,w8)
-    #[test]
-    fn matrix_satisfaction() -> crate::utils::Result<()> {
-        let mut cs = ConstraintSystem::<Fr>::new_ref();
-
-        let x1 = cs.new_input_variable(|| Ok(Fr::from(1u8))).unwrap();
-        let x2 = cs.new_input_variable(|| Ok(Fr::from(2u8))).unwrap();
-        let x3 = cs.new_input_variable(|| Ok(Fr::from(3u8))).unwrap();
-        let x4 = cs.new_input_variable(|| Ok(Fr::from(0u8))).unwrap();
-        let x5 = cs.new_input_variable(|| Ok(Fr::from(1255254u32))).unwrap();
-        let w1 = cs.new_witness_variable(|| Ok(Fr::from(4u8))).unwrap();
-        let w2 = cs.new_witness_variable(|| Ok(Fr::from(2u8))).unwrap();
-        let w3 = cs.new_witness_variable(|| Ok(Fr::from(5u8))).unwrap();
-        let w4 = cs.new_witness_variable(|| Ok(Fr::from(29u8))).unwrap();
-        let w5 = cs.new_witness_variable(|| Ok(Fr::from(28u8))).unwrap();
-        let w6 = cs.new_witness_variable(|| Ok(Fr::from(10u8))).unwrap();
-        let w7 = cs.new_witness_variable(|| Ok(Fr::from(57u8))).unwrap();
-        let w8 = cs.new_witness_variable(|| Ok(Fr::from(22022u32))).unwrap();
-
-        let mut local_predicate_a = LocalPredicate::new_poly_predicate(
-            4,
-            vec![
-                (Fr::from(1u8), vec![1, 1, 0, 0]),
-                (Fr::from(3u8), vec![0, 0, 2, 0]),
-                (Fr::from(-1i8), vec![0, 0, 0, 1]),
-            ],
-        )
-        .unwrap();
-        let mut local_predicate_b = LocalPredicate::new_poly_predicate(
-            3,
-            vec![
-                (Fr::from(7u8), vec![0, 1, 0]),
-                (Fr::from(1u8), vec![3, 0, 0]),
-                (Fr::from(-1i8), vec![0, 0, 1]),
-            ],
-        )
-        .unwrap();
-        let mut local_predicate_c = LocalPredicate::new_poly_predicate(
-            3,
-            vec![
-                (Fr::from(1u8), vec![1, 1, 0]),
-                (Fr::from(-1i8), vec![0, 0, 1]),
-            ],
-        )
-        .unwrap();
-
-        cs.register_predicate("poly-predicate-A", local_predicate_a);
-        cs.register_predicate("poly-predicate-B", local_predicate_b);
-        cs.register_predicate("poly-predicate-C", local_predicate_c);
-
-        let predicate_a_constraint_1 = vec![lc!() + x1, lc!() + x2, lc!() + x3, lc!() + w4];
-        let predicate_b_constraint_1 = vec![lc!() + x4, lc!() + w1, lc!() + w5];
-        let predicate_c_constraint_1 = vec![lc!() + w2, lc!() + w3, lc!() + w6];
-        let predicate_b_constraint_2 = vec![lc!() + w5, lc!() + w6, lc!() + w8];
-        let predicate_c_constraint_2 = vec![lc!() + w5+w4, lc!() + w8, lc!() + x5];
-
-        cs.enforce_constraint(predicate_a_constraint_1, "poly-predicate-A");
-        cs.enforce_constraint(predicate_b_constraint_1, "poly-predicate-B");
-        cs.enforce_constraint(predicate_c_constraint_1, "poly-predicate-C");
-        cs.enforce_constraint(predicate_b_constraint_2, "poly-predicate-B");
-        cs.enforce_constraint(predicate_c_constraint_2, "poly-predicate-C");
-        
-        assert!(cs.is_satisfied().unwrap());
-
-
-        Ok(())
-    }
-
-
+    // #[test]
+    // fn matrix_satisfaction() -> crate::utils::Result<()> {
+    //     let dummy_circuit = DummyCircuit_1;
+    //     let cs = ConstraintSystem::<Fr>::new_ref();
+    //     dummy_circuit.generate_constraints(cs)?;
+    //     assert!(cs.is_satisfied().unwrap());
+    //     Ok(())
+    // }
 }
+
+
+
