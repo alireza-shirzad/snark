@@ -7,9 +7,10 @@ use crate::utils::variable::*;
 use ark_ff::Field;
 use ark_std::vec::Vec;
 use ark_std::{string::String};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 
-#[cfg(feature = "std")]
-use crate::gr1cs::trace::ConstraintTrace;
+
+use super::impl_lc::LcIndex;
 
 /// The types of local predicates used in GR1CS
 /// For now we only add polynomial and lookup predicates
@@ -25,7 +26,7 @@ pub enum LocalPredicateType<F> {
 pub const MUL: &str = "multiplication";
 
 
-pub type PredicateArgument<F> = Vec<LinearCombination<F>>;
+pub type PredicateArgument = Vec<LcIndex>;
 
 #[derive(Debug, Clone)]
 pub struct LocalPredicate<F: Field> {
@@ -46,7 +47,7 @@ pub struct LocalPredicate<F: Field> {
     /// The constraints of this predicate
     /// each vector in `constraints` corresponds to an argument of the local predicate
     /// Hence, `self.constraints.len()` should always equal `self.arity`
-    constraints: Vec<PredicateArgument<F>>,
+    pub constraints: Vec<PredicateArgument>,
 }
 
 impl<F: Field> LocalPredicate<F> {
@@ -70,90 +71,23 @@ impl<F: Field> LocalPredicate<F> {
 
     pub fn enforce_constraint(
         &mut self,
-        constraint_lcs: Vec<LinearCombination<F>>,
+        constraint_lcs: Vec<LcIndex>,
     ) -> crate::utils::Result<()> {
         if self.arity != constraint_lcs.len() {
             return Err(SynthesisError::ArityMismatch);
         }
         self.num_constraints += 1;
         for i in 0..self.arity {
-            self.constraints[i].push(constraint_lcs[i].clone());
+            self.constraints[i].push(constraint_lcs[i]);
         }
         Ok(())
     }
-    pub fn which_is_unsatisfied(
-        &self,
-        witness_assignment: &Vec<F>,
-        instance_assignment: &Vec<F>,
-    ) -> crate::utils::Result<Option<String>> {
-        for i in 0..self.num_constraints {
-            let mut point: Vec<F> = Vec::new();
-            for argument in self.constraints.iter() {
-                point.push(
-                    self.eval_lc(&argument[i], witness_assignment, instance_assignment)
-                        .ok_or(SynthesisError::AssignmentMissing)?,
-                );
-            }
 
-            let result = match &self.predicate_type {
-                LocalPredicateType::Polynomial(poly) => poly.evaluate(&point),
-                _ => Err(SynthesisError::NotImplemented),
-            }?;
-
-            if result != F::zero() {
-                panic!("Constraint {} is unsatisfied", i)
-                // let trace;
-                // #[cfg(feature = "std")]
-                // {
-                //     trace = self.constraint_traces[i].as_ref().map_or_else(
-                //         || {
-                //             eprintln!("Constraint trace requires enabling `ConstraintLayer`");
-                //             format!("{}", i)
-                //         },
-                //         |t| format!("{}", t),
-                //     );
-                // }
-                // #[cfg(not(feature = "std"))]
-                // {
-                //     trace = format!("{}", i);
-                // }
-                // return Ok(Some(trace));
-            }
-        }
-        Ok(None)
-    }
 
     // Getter method for `constraints`
-    pub fn get_constraints(&self) -> &Vec<Vec<LinearCombination<F>>> {
+    pub fn get_constraints(&self) -> &Vec<Vec<LcIndex>> {
         &self.constraints
     }
 
-    fn eval_lc(
-        &self,
-        lc: &LinearCombination<F>,
-        witness_assignment: &Vec<F>,
-        instance_assignment: &Vec<F>,
-    ) -> Option<F> {
-        let mut acc = F::zero();
-        for (coeff, var) in lc.iter() {
-            acc += *coeff * self.assigned_value(*var, witness_assignment, instance_assignment)?;
-        }
-        Some(acc)
-    }
 
-    /// Obtain the assignment corresponding to the `Variable` `v`.
-    pub fn assigned_value(
-        &self,
-        v: Variable,
-        witness_assignment: &Vec<F>,
-        instance_assignment: &Vec<F>,
-    ) -> Option<F> {
-        match v {
-            Variable::One => Some(F::one()),
-            Variable::Zero => Some(F::zero()),
-            Variable::Witness(idx) => witness_assignment.get(idx).copied(),
-            Variable::Instance(idx) => instance_assignment.get(idx).copied(),
-            Variable::SymbolicLc(idx) => None,
-        }
-    }
 }

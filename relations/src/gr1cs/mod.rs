@@ -4,16 +4,13 @@
 pub mod constraint_system;
 pub mod predicate;
 pub mod sample;
-#[cfg(feature = "std")]
-mod trace;
-
-#[cfg(feature = "std")]
-pub use crate::gr1cs::trace::{ConstraintLayer, ConstraintTrace, TraceStep, TracingMode};
+pub mod index;
+mod Index;
 
 
 pub use tracing::info_span;
 pub use constraint_system::{
-    Index, ConstraintSynthesizer, ConstraintSystem, ConstraintSystemRef, Namespace,
+     ConstraintSynthesizer, ConstraintSystem, ConstraintSystemRef, Namespace,
     OptimizationGoal, SynthesisMode,
 };
 pub use crate::utils::error;

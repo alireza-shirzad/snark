@@ -17,3 +17,21 @@ ark-ff = { version = "0.4.0", default-features = false }
 ark-std = { version = "0.4.0", default-features = false }
 ark-serialize = { version = "0.4.0", default-features = false }
 ark-relations = { version = "0.4.0", path = "../relations", default-features = false }
+
+
+
+[patch.crates-io]
+ark-ff = { git = "https://github.com/arkworks-rs/algebra/" }
+ark-std = { git = "https://github.com/arkworks-rs/std/" }
+ark-ec = { git = "https://github.com/arkworks-rs/algebra/" }
+ark-poly = { git = "https://github.com/arkworks-rs/algebra/" }
+ark-serialize = { git = "https://github.com/arkworks-rs/algebra/" }
+ark-test-curves = { git = "https://github.com/arkworks-rs/algebra/" }
+ark-bn254 = { git = "https://github.com/arkworks-rs/curves/" }
+ark-bls12-377 = { git = "https://github.com/arkworks-rs/curves/" }
+ark-bls12-381 = { git = "https://github.com/arkworks-rs/curves/" }
+ark-mnt4-298 = { git = "https://github.com/arkworks-rs/curves/" }
+ark-mnt4-753 = { git = "https://github.com/arkworks-rs/curves/" }
+ark-mnt6-298 = { git = "https://github.com/arkworks-rs/curves/" }
+ark-mnt6-753 = { git = "https://github.com/arkworks-rs/curves/" }
+ark-pallas = { git = "https://github.com/arkworks-rs/curves/" }

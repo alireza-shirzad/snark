@@ -27,6 +27,8 @@ pub enum SynthesisError {
     NotImplemented,
     /// Returns not implemented errors
     InstanceWitnessSizeMismatch,
+    /// Returns not implemented errors
+    UnknownPredicate,
 }
 
 impl ark_std::error::Error for SynthesisError {}
@@ -49,7 +51,10 @@ impl fmt::Display for SynthesisError {
                 write!(f, "auxiliary variable was unconstrained")
             },
             SynthesisError::UnconstrainedVariable => {
-                write!(f, "Number of linear combinations should match the predicate arity")
+                write!(
+                    f,
+                    "Number of linear combinations should match the predicate arity"
+                )
             },
             SynthesisError::ArityMismatch => {
                 write!(f, "The Arity of the constraints provided does not match the arity supported by the local predicate")
@@ -58,7 +63,16 @@ impl fmt::Display for SynthesisError {
                 write!(f, "This function has not been implemented yet")
             },
             SynthesisError::InstanceWitnessSizeMismatch => {
-                write!(f, "The instance and witness and totall size of the index don't match")
+                write!(
+                    f,
+                    "The instance and witness and totall size of the index don't match"
+                )
+            },
+            SynthesisError::UnknownPredicate => {
+                write!(
+                    f,
+                    "This predicate does not exist in the current constraint system"
+                )
             },
         }
     }
