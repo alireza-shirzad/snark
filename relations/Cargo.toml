@@ -6,7 +6,13 @@ description = "A library for generalized rank-one constraint systems"
 homepage.workspace = true
 repository.workspace = true
 documentation = "https://docs.rs/ark-relations/"
-keywords = ["zero-knowledge", "cryptography", "zkSNARK", "SNARK", "constraint-systems"]
+keywords = [
+    "zero-knowledge",
+    "cryptography",
+    "zkSNARK",
+    "SNARK",
+    "constraint-systems",
+]
 categories = ["cryptography"]
 include = ["Cargo.toml", "src", "README.md", "LICENSE-APACHE", "LICENSE-MIT"]
 license.workspace = true
@@ -19,13 +25,17 @@ ark-poly.workspace = true
 ark-serialize.workspace = true
 tracing = { workspace = true, features = ["attributes"] }
 tracing-subscriber = { workspace = true, default-features = true, optional = true }
+rayon = { workspace = true, optional = true }
 
 [dev-dependencies]
-ark-test-curves = { workspace = true, default-features = false, features = [ "bls12_381_scalar_field" ] }
+ark-test-curves = { workspace = true, default-features = false, features = [
+    "bls12_381_scalar_field",
+] }
 
 [features]
 default = []
-std = [ "ark-std/std", "ark-ff/std", "tracing-subscriber", "tracing/std" ]
+std = ["ark-std/std", "ark-ff/std", "tracing-subscriber", "tracing/std"]
+parallel = ["rayon"]
 
 
 [[example]]

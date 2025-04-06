@@ -1,3 +1,6 @@
+#[cfg(feature = "parallel")]
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+
 use ark_ff::Field;
 use ark_std::vec::Vec;
 /// A sparse representation of constraint matrices.
@@ -22,14 +25,15 @@ pub fn transpose<F: Field>(matrix: &Matrix<F>, num_col: usize) -> Matrix<F> {
 }
 
 /// Multiply a matrix by a vector.
-pub fn mat_vec_mul<F: Field>(matrix: &Matrix<F>, vector: &[F]) -> Vec<F> {
-    let mut output: Vec<F> = Vec::new();
-    for row in matrix {
-        let mut sum: F = F::zero();
-        for (value, col) in row {
-            sum += vector[*col] * value;
-        }
-        output.push(sum);
-    }
-    output
+pub fn mat_vec_mul<F>(matrix: &Matrix<F>, vector: &[F]) -> Vec<F>
+where
+    F: Field + Copy + Send + Sync, // Send/Sync are only needed when `parallel`
+{
+    cfg_iter!(matrix) // -> `.par_iter()` or `.iter()`
+        .map(|row| {
+            cfg_iter!(row) // row‑local dot‑product
+                .map(|(value, col)| *value * vector[*col])
+                .sum::<F>() // works for both Iterator & ParallelIterator
+        })
+        .collect()
 }
