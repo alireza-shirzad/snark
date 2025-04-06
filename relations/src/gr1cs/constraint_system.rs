@@ -724,6 +724,16 @@ impl<F: Field> ConstraintSystem<F> {
         Ok(matrices)
     }
 
+        /// Get the matrices corresponding to the predicates.and the
+    /// corresponding set of matrices
+    pub fn to_spartan_matrices(&self) -> crate::gr1cs::Result<BTreeMap<Label, Vec<Matrix<F>>>> {
+        let mut matrices = BTreeMap::new();
+        for (label, predicate) in self.predicate_constraint_systems.iter() {
+            matrices.insert(label.clone(), predicate.to_spartan_matrices(self));
+        }
+        Ok(matrices)
+    }
+
     /// Get the linear combination corresponding to the given `lc_index`.
     /// TODO: This function should return a reference to the linear
     /// combination and not clone it.
@@ -751,6 +761,24 @@ impl<F: Field> ConstraintSystem<F> {
             })
             .collect()
     }
+
+        /// Given a linear combination, create a row in the matrix
+        #[inline]
+        pub(crate) fn make_spartan_row(&self, l: &LinearCombination<F>) -> Vec<(F, usize)> {
+            let num_witness = self.num_witness_variables();
+            l.0.iter()
+                .filter_map(|(coeff, var)| {
+                    if coeff.is_zero() {
+                        None
+                    } else {
+                        Some((
+                            *coeff,
+                            var.get_spartan_index_unchecked(num_witness).expect("no symbolic LCs"),
+                        ))
+                    }
+                })
+                .collect()
+        }
 
     /// Sets the flag for outlining the instances
     pub(crate) fn set_instance_outliner(&mut self, instance_outliner: InstanceOutliner<F>) {

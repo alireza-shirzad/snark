@@ -79,6 +79,18 @@ impl Variable {
             _ => None,
         }
     }
+
+    /// Returns `Some(usize)` if `!self.is_lc()`, and `None` otherwise.
+    #[inline]
+    pub fn get_spartan_index_unchecked(&self, instance_offset: usize) -> Option<usize> {
+        match self {
+            // The one variable always has index 0
+            Variable::One => Some(instance_offset),
+            Variable::Instance(i) => Some(instance_offset + *i),
+            Variable::Witness(i) => Some(*i),
+            _ => None,
+        }
+    }
 }
 
 impl PartialOrd for Variable {

@@ -404,6 +404,16 @@ impl<F: Field> ConstraintSystemRef<F> {
             .and_then(|cs| cs.borrow().to_matrices())
     }
 
+
+        /// Get the matrices corresponding to the  predicates.and the
+    /// corresponding set of matrices
+    #[inline]
+    pub fn to_spartan_matrices(&self) -> crate::gr1cs::Result<BTreeMap<Label, Vec<Matrix<F>>>> {
+        self.inner()
+            .ok_or(SynthesisError::MissingCS)
+            .and_then(|cs| cs.borrow().to_spartan_matrices())
+    }
+
     /// Get the linear combination corresponding to the given `lc_index`.
     /// TODO: This function should ideally return a reference to the linear
     /// combination and not clone it.

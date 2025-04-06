@@ -215,4 +215,17 @@ impl<F: Field> PredicateConstraintSystem<F> {
         }
         matrices
     }
+
+        /// Create the set of matrices for this predicate constraint system
+        pub fn to_spartan_matrices(&self, cs: &ConstraintSystem<F>) -> Vec<Matrix<F>> {
+            let mut matrices: Vec<Matrix<F>> = vec![Vec::new(); self.get_arity()];
+            for constraint in self.iter_constraints() {
+                for (matrix_ind, lc_index) in constraint.iter().enumerate() {
+                    let lc = cs.get_lc(*lc_index).unwrap();
+                    let row = cs.make_spartan_row(&lc);
+                    matrices[matrix_ind].push(row);
+                }
+            }
+            matrices
+        }
 }
